@@ -12,8 +12,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN useradd --create-home --uid 10001 quality && chown -R quality:quality /srv
+# The state volume is mounted at /data; create it up-front and hand it to the
+# unprivileged user so the engine can perform its atomic writes there.
+RUN useradd --create-home --uid 10001 quality \
+    && mkdir -p /data \
+    && chown -R quality:quality /srv /data
 USER quality
+
+ENV QUALITY_DATA_DIR=/data
 
 EXPOSE 8000
 

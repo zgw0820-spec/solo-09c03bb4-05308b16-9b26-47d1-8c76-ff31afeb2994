@@ -11,6 +11,12 @@ services:
       # Optional pause between replayed frames (ms) so the UI can show replay
       # progress; 0 keeps replay as fast as possible.
       QUALITY_REPLAY_PACE_MS: "0"
+      # All engine state (frames, scores, gap, provisional state, pending
+      # fills) is written here with atomic file replacement.  The named volume
+      # survives `docker compose down`, image rebuilds and container crashes.
+      QUALITY_DATA_DIR: /data
+    volumes:
+      - quality-data:/data
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -27,3 +33,7 @@ services:
       timeout: 3s
       retries: 3
       start_period: 8s
+
+volumes:
+  quality-data:
+    name: quality-inference-data

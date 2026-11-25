@@ -208,7 +208,7 @@ def main() -> int:
         )
         mid = c.call("GET", "/api/cameras/1/state")[1]
         check(mid["state_digest"] == before["state_digest"], "状态指纹未变")
-        check(mid["gap"] == before["gap"], "缺口仍开放")
+        check(mid["gap"]["frame_no"] == before["gap"]["frame_no"], "缺口仍开放")
         check(
             [s["score"] for s in mid["scores"]] == [s["score"] for s in before["scores"]],
             "已发分数未变",

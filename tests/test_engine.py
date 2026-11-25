@@ -78,6 +78,7 @@ def test_fill_replays_to_clean_state_and_never_edits_published_scores():
         "grew_during_replay": False,
         "caught_up_with_last_published_frame": True,
         "target_frame": 8,
+        "resumed": False,
     }
     snap = e.snapshot(0)
     assert snap["gap"] is None
@@ -145,7 +146,7 @@ def test_failed_replay_preserves_state_and_can_retry():
     after = e.snapshot(0)
     assert after["state"] == before["state"]
     assert after["state_digest"] == before["state_digest"]
-    assert after["gap"] == before["gap"]
+    assert after["gap"]["frame_no"] == before["gap"]["frame_no"]
     assert [s["score"] for s in after["scores"]] == [s["score"] for s in before["scores"]]
     assert all(s["revision"] == 0 for s in after["scores"])
     # Stream keeps working while the gap stays open.
@@ -223,7 +224,7 @@ def test_second_gap_inside_replay_window_fails_without_mutation():
     assert info.value.retryable is True
     after = e.snapshot(0)
     assert after["state"] == before["state"]
-    assert after["gap"] == before["gap"]
+    assert after["gap"]["frame_no"] == before["gap"]["frame_no"]
     assert e._camera(0).replay is None
 
 

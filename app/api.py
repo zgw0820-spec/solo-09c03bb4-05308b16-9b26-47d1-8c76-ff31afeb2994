@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any, Literal
 
@@ -13,17 +14,40 @@ from pydantic import BaseModel, Field
 
 from . import model
 from .engine import Engine, EngineError, MAX_PACE_MS
+from .storage import FileStore, MemoryStore, StorageError
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 SAMPLES_PATH = BASE_DIR / "data" / "samples.json"
 
+# When QUALITY_DATA_DIR is set (the Docker image always sets it to the mounted
+# volume), all engine state lives in crash-safe JSON files there.  Without it
+# the service still runs, but state is process-local and lost on exit.
+DATA_DIR = os.environ.get("QUALITY_DATA_DIR", "").strip()
+
+
+def _build_engine() -> Engine:
+    if DATA_DIR:
+        try:
+            return Engine(store=FileStore(DATA_DIR))
+        except StorageError as exc:
+            # The volume is mounted but unusable (permissions, corrupt state,
+            # weight/format mismatch).  Fail loudly instead of silently
+            # dropping history into a fresh in-memory engine.
+            raise RuntimeError(
+                f"cannot start with QUALITY_DATA_DIR={DATA_DIR!r}: {exc.message}. "
+                "Fix the volume or its state files; the service will not start "
+                "with an unreadable durable store to avoid overwriting history."
+            ) from exc
+    return Engine(store=MemoryStore())
+
+
 app = FastAPI(
     title="产线缺陷分数推理",
-    description="固定权重 NumPy 递推模型 + 单帧缺口补算",
-    version="1.0.0",
+    description="固定权重 NumPy 递推模型 + 单帧缺口补算（卷持久化、崩溃续跑）",
+    version="2.0.0",
 )
-engine = Engine()
+engine = _build_engine()
 
 
 def _load_samples() -> dict[str, Any]:
@@ -67,9 +91,29 @@ async def engine_error_handler(_: Request, exc: EngineError) -> JSONResponse:
     return JSONResponse(status_code=exc.status_code, content=exc.payload())
 
 
+@app.exception_handler(StorageError)
+async def storage_error_handler(_: Request, exc: StorageError) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "code": "persistence_failed",
+            "message": f"durable storage unavailable: {exc.message}; "
+            "the request did not take effect, retry it",
+            "retryable": True,
+            "state_preserved": True,
+        },
+    )
+
+
 @app.get("/api/health")
 def health() -> dict[str, Any]:
-    return {"status": "ok", "model": model.info(), "cameras": [c["camera"] for c in engine.summary()["cameras"]]}
+    summary = engine.summary()
+    return {
+        "status": "ok",
+        "model": model.info(),
+        "cameras": [c["camera"] for c in summary["cameras"]],
+        "storage": summary["storage"],
+    }
 
 
 @app.get("/api/model")

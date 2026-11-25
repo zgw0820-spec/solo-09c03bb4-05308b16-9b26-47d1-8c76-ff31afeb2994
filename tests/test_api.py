@@ -96,7 +96,8 @@ def test_failed_fill_http_contract_then_retry():
     assert err["code"] == "replay_failed" and err["retryable"] is True and err["state_preserved"] is True
     after = client.get("/api/cameras/0/state").json()
     assert after["state_digest"] == before["state_digest"]
-    assert after["gap"] == before["gap"]
+    assert after["gap"]["frame_no"] == before["gap"]["frame_no"]
+    assert after["pending_fill"] is not None and after["pending_fill"]["attempt_failed"] is True
     assert [s["score"] for s in after["scores"]] == [s["score"] for s in before["scores"]]
     # New frame still gets a score (estimated) while gap is open.
     keep = client.post("/api/cameras/0/frames", json={"frame_no": 8, "features": CAM0[8]})

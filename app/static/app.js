@@ -100,12 +100,18 @@ function renderTable(cam, scores) {
 function renderCamera(cam, snap) {
   const gap = snap?.gap;
   const replay = snap?.replay;
+  const pending = snap?.pending_fill;
   const lastOut = snap?.last_output_frame ?? 0;
   const nextNo = (snap?.last_frame ?? 0) + 1;
   const badges = el("div", { class: "badges" },
     el("span", { class: "badge", text: `已发 ${snap?.scores.length ?? 0} 帧` }),
     gap ? el("span", { class: "badge gap", text: `缺口 #${gap.frame_no}` }) : null,
     replay ? el("span", { class: "badge replay", text: `补算中 → #${replay.cursor}` }) : null,
+    !replay && pending ? el("span", {
+      class: "badge replay",
+      title: "补算在提交前中断（如容器退出）；缺口、暂估状态和已收帧都已保留，点「补交原帧」即可续算",
+      text: `待续补算 #${pending.frame_no}${pending.attempt_failed ? "（曾失败）" : ""}`,
+    }) : null,
   );
 
   const controls = el("div", { class: "camera-controls" });
@@ -222,7 +228,7 @@ async function fillGap(camera, frameNo, paceMs, simulateFailure = false) {
       pace_ms: pace,
       simulate_failure: simulateFailure,
     });
-    log("ok", `${camName(camera)} 补算完成：回放 #${r.replay.from}–#${r.replay.to}（${r.replay.frames} 帧，追上最新已出分帧）`);
+    log("ok", `${camName(camera)} 补算完成：回放 #${r.replay.from}–#${r.replay.to}（${r.replay.frames} 帧，追上最新已出分帧）${r.replay.resumed ? "，本次为中断后续算" : ""}`);
     const changed = r.revisions.filter((x) => x.changed);
     log("", `${camName(camera)} 缺口帧 #${frameNo} ${fmt(r.gap_score.published_score)} → ${fmt(r.gap_score.revised_score)}；${changed.length} 帧修正值有变化，已发分数保持不变`);
   });
@@ -374,6 +380,12 @@ async function init() {
       `权重指纹 ${info.weight_digest}`,
       "权重硬编码，运行时不训练",
     ].join("\n");
+    const health = await api("GET", "/api/health");
+    const storage = health.storage || {};
+    $("#storagebox").textContent = storage.durable
+      ? `状态持久化：卷目录 ${storage.data_dir}（整笔写入，容器退出后可恢复）`
+      : "状态持久化：仅进程内存（未配置数据目录，重启即丢）";
+    $("#storagebox").classList.toggle("durable", !!storage.durable);
     state.samples = await api("GET", "/api/samples");
     await refresh();
     wireSubmitForm();
@@ -381,6 +393,9 @@ async function init() {
     $("#btn-clear-log").onclick = () => { $("#log").innerHTML = ""; };
     $("#btn-demo").onclick = demo;
     $("#btn-play-a").onclick = () => runCameraToEnd(0);
+    // Reopened page after a restart: poll quietly so restored scores, gaps and
+    // in-flight replay progress show up without a manual refresh.
+    setInterval(() => { if (!state.busy) refresh().catch(() => {}); }, 4000);
   } catch (err) {
     toast(`初始化失败：${err.message || err}`);
   }
